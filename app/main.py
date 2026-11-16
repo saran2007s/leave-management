@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 
-from app.auth import get_current_user, router as auth_router
 from app.database import Base, engine
-from app.models import User
-from app.schemas import UserOut
+from app.routers.admin_router import router as admin_router
+from app.routers.auth_router import router as auth_router
+from app.routers.leave_router import router as leave_router
+from app.routers.team_router import router as team_router
 
 
 @asynccontextmanager
@@ -17,11 +18,8 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Leave Management System", lifespan=lifespan)
 
-# Register routers
+# Register API routers
 app.include_router(auth_router)
-
-
-@app.get("/api/me", response_model=UserOut, tags=["auth"])
-def read_current_user(current_user: User = Depends(get_current_user)):
-    """Return the profile of the currently logged-in user."""
-    return current_user
+app.include_router(leave_router)
+app.include_router(team_router)
+app.include_router(admin_router)

@@ -141,10 +141,12 @@ def get_my_requests(
 @router.post("", response_model=LeaveRequestOut, status_code=status.HTTP_201_CREATED)
 def create_request(
     payload: LeaveRequestCreate,
-    current_user: User = Depends(require_role("employee", "manager")),
+    current_user: User = Depends(
+        require_role("employee", detail="Only employees can submit leave requests.")
+    ),
     db: Session = Depends(get_db),
 ):
-    """Submit a new leave request (validated against all business rules)."""
+    """Submit a new leave request (employees only; validated against all business rules)."""
     req = leave_service.create_leave_request(
         db=db,
         user=current_user,
@@ -153,7 +155,6 @@ def create_request(
         end_date=payload.end_date,
         reason=payload.reason,
     )
-    # Reload with relationships for serialization
     loaded = (
         db.query(LeaveRequest)
         .options(joinedload(LeaveRequest.user), joinedload(LeaveRequest.leave_type))
@@ -166,10 +167,12 @@ def create_request(
 @router.post("/{request_id}/cancel", response_model=LeaveRequestOut)
 def cancel_request(
     request_id: int,
-    current_user: User = Depends(require_role("employee", "manager")),
+    current_user: User = Depends(
+        require_role("employee", detail="Only employees can cancel their own leave requests.")
+    ),
     db: Session = Depends(get_db),
 ):
-    """Cancel the current user's own pending or future approved request."""
+    """Cancel the current employee's own pending or future approved request."""
     req = leave_service.cancel_leave_request(db=db, current_user=current_user, request_id=request_id)
     loaded = (
         db.query(LeaveRequest)

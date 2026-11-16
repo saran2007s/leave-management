@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Admin Configuration - Leave Management{% endblock %}
+
+{% block content %}
+<div id="admin-alert" class="alert hidden"></div>
+
+<div class="grid-2">
+  <div class="card">
+    <h3>Leave Type Allowances</h3>
+    <p style="color: var(--muted); font-size: 0.88rem;">
+      Changes take effect immediately for all new requests and pending approvals.
+    </p>
+    <div id="leave-types-list"></div>
+  </div>
+
+  <div class="card">
+    <h3>Policy Settings</h3>
+    <form id="settings-form">
+      <div class="form-group">
+        <label for="min-notice">Minimum Notice Days (calendar days, Sick exempt)</label>
+        <input type="number" id="min-notice" min="0" required />
+      </div>
+      <div class="form-group">
+        <label for="max-off">Max Team Members Off Per Day</label>
+        <input type="number" id="max-off" min="1" required />
+      </div>
+      <button type="submit" class="btn">Save Settings</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Public Holidays</h3>
+  <form id="holiday-form" style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: end; margin-bottom: 1rem;">
+    <div class="form-group" style="margin-bottom: 0; flex: 1; min-width: 160px;">
+      <label for="holiday-date">Date</label>
+      <input type="date" id="holiday-date" required />
+    </div>
+    <div class="form-group" style="margin-bottom: 0; flex: 2; min-width: 220px;">
+      <label for="holiday-name">Holiday Name</label>
+      <input type="text" id="holiday-name" required placeholder="e.g., Independence Day" />
+    </div>
+    <button type="submit" class="btn">Add Holiday</button>
+  </form>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Name</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="admin-holidays-tbody"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function loadAdminData() {
+    try {
+      const [types, settings, holidays] = await Promise.all([
+        apiFetch("/api/admin/leave-types"),
+        apiFetch("/api/admin/settings"),
+        apiFetch("/api/admin/holidays"),
+      ]);
+
+      renderLeaveTypes(types);
+      renderSettings(settings);
+      renderAdminHolidays(holidays);
+    } catch (err) {
+      showAlert("admin-alert", err.message, "error");
+    }
+  }
+
+  function renderLeaveTypes(types) {
+    const container = document.getElementById("leave-types-list");
+    container.innerHTML = types
+      .map(
+        (t) => `
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem;">
+          <strong style="min-width: 85px;">${t.name}</strong>
+          <input type="number" id="lt-${t.id}" value="${t.yearly_allowance}" min="0"
+                 style="width: 100px; padding: 0.4rem; border: 1px solid var(--border); border-radius: 6px;" />
+          <span style="color: var(--muted); font-size: 0.85rem;">days/year</span>
+          <button class="btn btn-sm" onclick="updateAllowance(${t.id})">Update</button>
+        </div>`
+      )
+      .join("");
+  }
+
+  function renderSettings(settings) {
+    const map = Object.fromEntries(settings.map((s) => [s.key, s.value]));
+    document.getElementById("min-notice").value = map["min_notice_days"] ?? "2";
+    document.getElementById("max-off").value = map["max_off_per_day"] ?? "2";
+  }
+
+  function renderAdminHolidays(holidays) {
+    const tbody = document.getElementById("admin-holidays-tbody");
+    tbody.innerHTML = holidays
+      .map(
+        (h) => `
+        <tr>
+          <td>${h.date}</td>
+          <td>${h.name}</td>
+          <td><button class="btn btn-sm btn-danger" onclick="deleteHoliday(${h.id})">Delete</button></td>
+        </tr>`
+      )
+      .join("");
+  }
+
+  async function updateAllowance(id) {
+    hideAlert("admin-alert");
+    const val = Number(document.getElementById(`lt-${id}`).value);
+    try {
+      const updated = await apiFetch(`/api/admin/leave-types/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ yearly_allowance: val }),
+      });
+      showAlert("admin-alert", `Updated ${updated.name} allowance to ${updated.yearly_allowance} days.`, "success");
+    } catch (err) {
+      showAlert("admin-alert", err.message, "error");
+    }
+  }
+
+  document.getElementById("settings-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideAlert("admin-alert");
+    try {
+      await apiFetch("/api/admin/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          min_notice_days: Number(document.getElementById("min-notice").value),
+          max_off_per_day: Number(document.getElementById("max-off").value),
+        }),
+      });
+      showAlert("admin-alert", "Policy settings saved.", "success");
+    } catch (err) {
+      showAlert("admin-alert", err.message, "error");
+    }
+  });
+
+  document.getElementById("holiday-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideAlert("admin-alert");
+    try {
+      await apiFetch("/api/admin/holidays", {
+        method: "POST",
+        body: JSON.stringify({
+          date: document.getElementById("holiday-date").value,
+          name: document.getElementById("holiday-name").value,
+        }),
+      });
+      document.getElementById("holiday-form").reset();
+      showAlert("admin-alert", "Public holiday added.", "success");
+      await loadAdminData();
+    } catch (err) {
+      showAlert("admin-alert", err.message, "error");
+    }
+  });
+
+  async function deleteHoliday(id) {
+    hideAlert("admin-alert");
+    try {
+      await apiFetch(`/api/admin/holidays/${id}`, { method: "DELETE" });
+      showAlert("admin-alert", "Public holiday removed.", "success");
+      await loadAdminData();
+    } catch (err) {
+      showAlert("admin-alert", err.message, "error");
+    }
+  }
+
+  (async function init() {
+    const user = await requireAuthPage();
+    if (!user) return;
+    if (user.role !== "admin") {
+      showAlert("admin-alert", "Only administrators can modify system configuration.", "error");
+      return;
+    }
+    await loadAdminData();
+  })();
+</script>
+{% endblock %}

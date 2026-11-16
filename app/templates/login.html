@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login - Leave Management</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <div class="container login-box">
+    <div class="card">
+      <h2>Leave Management Login</h2>
+      <p style="color: var(--muted); font-size: 0.9rem;">
+        Sign in with your demo or company credentials.
+      </p>
+
+      <div id="login-alert" class="alert hidden"></div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" required placeholder="emp1@demo.com" />
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" required placeholder="password123" />
+        </div>
+        <button type="submit" class="btn" style="width: 100%;">Sign In</button>
+      </form>
+
+      <hr style="margin: 1.25rem 0; border: none; border-top: 1px solid var(--border);" />
+      <div style="font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem;">
+        Quick-fill demo accounts (password: <code>password123</code>):
+      </div>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <button type="button" class="btn btn-sm btn-outline" onclick="fillDemo('emp1@demo.com')">Employee 1</button>
+        <button type="button" class="btn btn-sm btn-outline" onclick="fillDemo('manager1@demo.com')">Manager 1</button>
+        <button type="button" class="btn btn-sm btn-outline" onclick="fillDemo('admin@demo.com')">Admin</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    function fillDemo(email) {
+      document.getElementById("email").value = email;
+      document.getElementById("password").value = "password123";
+    }
+
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      hideAlert("login-alert");
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+
+      try {
+        const data = await apiFetch("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        });
+        setToken(data.access_token);
+        window.location.href = "/dashboard";
+      } catch (err) {
+        showAlert("login-alert", err.message, "error");
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+import datetime as dt
 
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -35,20 +35,20 @@ class LeaveRequest(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     leave_type_id: Mapped[int] = mapped_column(ForeignKey("leave_types.id"), nullable=False)
-    start_date: Mapped[date] = mapped_column(Date, nullable=False)
-    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    start_date: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[dt.date] = mapped_column(Date, nullable=False)
     # Number of working days calculated and stored when the request is created
     days_count: Mapped[int] = mapped_column(Integer, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # Status is one of: 'pending', 'approved', 'rejected', 'cancelled'
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
-    created_at: Mapped[datetime] = mapped_column(
+    created_at: Mapped[dt.datetime] = mapped_column(
         DateTime,
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: dt.datetime.now(dt.timezone.utc),
     )
     decided_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    decided_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
 
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
     leave_type: Mapped["LeaveType"] = relationship("LeaveType")
@@ -59,7 +59,7 @@ class PublicHoliday(Base):
     __tablename__ = "public_holidays"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    date: Mapped[date] = mapped_column(Date, unique=True, nullable=False)
+    date: Mapped[dt.date] = mapped_column(Date, unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
 
 

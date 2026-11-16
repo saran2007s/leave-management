@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Manager Approvals - Leave Management{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+    <h2 style="margin: 0;">Team Leave Approvals</h2>
+    <div>
+      <label for="status-filter" style="font-size: 0.9rem; font-weight: 600;">Filter:</label>
+      <select id="status-filter" style="padding: 0.35rem 0.6rem; border-radius: 6px; border: 1px solid var(--border);">
+        <option value="pending" selected>Pending Only</option>
+        <option value="">All Requests</option>
+        <option value="approved">Approved</option>
+        <option value="rejected">Rejected</option>
+        <option value="cancelled">Cancelled</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="approvals-alert" class="alert hidden"></div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Type</th>
+          <th>Dates</th>
+          <th>Days</th>
+          <th>Reason</th>
+          <th>Status</th>
+          <th>Decision</th>
+        </tr>
+      </thead>
+      <tbody id="approvals-tbody"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function loadTeamRequests() {
+    const status = document.getElementById("status-filter").value;
+    const url = status ? `/api/leaves/team?status=${status}` : "/api/leaves/team";
+
+    try {
+      const requests = await apiFetch(url);
+      const tbody = document.getElementById("approvals-tbody");
+
+      if (!requests.length) {
+        tbody.innerHTML = `<tr><td colspan="7" style="color: var(--muted);">No matching requests.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = requests
+        .map((r) => {
+          const actions =
+            r.status === "pending"
+              ? `
+                <button class="btn btn-sm btn-success" onclick="decide(${r.id}, 'approve')">Approve</button>
+                <button class="btn btn-sm btn-danger" onclick="decide(${r.id}, 'reject')">Reject</button>
+              `
+              : `<span style="color: var(--muted); font-size: 0.82rem;">Decided</span>`;
+
+          return `
+            <tr>
+              <td><strong>${r.user_name}</strong></td>
+              <td>${r.leave_type_name}</td>
+              <td>${r.start_date} → ${r.end_date}</td>
+              <td>${r.days_count}</td>
+              <td>${r.reason || "—"}</td>
+              <td>${statusBadge(r.status)}</td>
+              <td style="white-space: nowrap;">${actions}</td>
+            </tr>`;
+        })
+        .join("");
+    } catch (err) {
+      showAlert("approvals-alert", err.message, "error");
+    }
+  }
+
+  async function decide(id, action) {
+    hideAlert("approvals-alert");
+    try {
+      await apiFetch(`/api/leaves/${id}/${action}`, { method: "POST" });
+      showAlert("approvals-alert", `Request #${id} ${action}d successfully.`, "success");
+      await loadTeamRequests();
+    } catch (err) {
+      showAlert("approvals-alert", err.message, "error");
+    }
+  }
+
+  document.getElementById("status-filter").addEventListener("change", loadTeamRequests);
+
+  (async function init() {
+    const user = await requireAuthPage();
+    if (!user) return;
+    if (user.role !== "manager") {
+      showAlert("approvals-alert", "Only managers can view and approve team requests.", "error");
+      return;
+    }
+    await loadTeamRequests();
+  })();
+</script>
+{% endblock %}

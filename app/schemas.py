@@ -115,3 +115,11 @@ class TeamCalendarOut(BaseModel):
     events: list[CalendarEventOut]
     holidays: list[HolidayOut]
     max_off_per_day: int
+
+
+class TeamSummaryOut(BaseModel):
+    summary: str
+    source: str  # "gemini" or "template"
+    start_date: date
+    end_date: date
+    total_requests: int

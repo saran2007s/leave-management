@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Leave Management{% endblock %}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div id="dash-alert" class="alert hidden"></div>
+
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+  <h2 style="margin: 0;" id="dash-heading">Dashboard</h2>
+  <div id="employee-controls" class="hidden" style="display: flex; gap: 0.5rem; align-items: center;">
+    <label for="year-select" style="font-size: 0.9rem; font-weight: 600;">Year:</label>
+    <select id="year-select" style="padding: 0.35rem 0.6rem; border-radius: 6px; border: 1px solid var(--border);">
+      <option value="2026">2026</option>
+      <option value="2027">2027</option>
+    </select>
+    <a href="/request" id="btn-new-req" class="btn btn-sm">+ Request Leave</a>
+  </div>
+</div>
+
+<!-- Employee Section: Leave Balances, Chart, Holidays & Own Requests -->
+<div id="employee-section" class="hidden">
+  <div id="balance-cards" class="grid-3"></div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3>Leave Balance Breakdown</h3>
+      <canvas id="balance-chart" height="170"></canvas>
+    </div>
+    <div class="card">
+      <h3>Upcoming Public Holidays</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Date</th><th>Holiday</th></tr>
+          </thead>
+          <tbody id="emp-holiday-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>My Leave Requests</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Dates</th>
+            <th>Working Days</th>
+            <th>Reason</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="my-requests-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Manager Section: Pending Approvals Count, Team Off This Week & Link to Approvals -->
+<div id="manager-section" class="hidden">
+  <div class="grid-2">
+    <div class="stat-card">
+      <div class="stat-title">Pending Approvals</div>
+      <div class="stat-value" id="mgr-pending-count">0</div>
+      <div class="stat-sub" style="margin-bottom: 0.85rem;">
+        Direct reports' requests awaiting your decision.
+      </div>
+      <a href="/approvals" class="btn btn-sm">Go to Approvals</a>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-title">Team Off This Week (<span id="mgr-week-range"></span>)</div>
+      <div id="mgr-off-this-week" style="margin: 0.6rem 0 0.85rem; font-size: 0.92rem;"></div>
+      <a href="/calendar" class="btn btn-sm btn-outline">Open Team Calendar</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Upcoming Public Holidays</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Date</th><th>Holiday</th></tr>
+        </thead>
+        <tbody id="mgr-holiday-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Admin Section: System Summary & Link to Admin Settings -->
+<div id="admin-section" class="hidden">
+  <div class="card">
+    <h3>System Configuration Summary</h3>
+    <p style="color: var(--muted); font-size: 0.92rem;">
+      Manage yearly leave allowances, advance-notice rules, team capacity caps, and public holidays.
+    </p>
+    <div id="admin-summary-grid" class="grid-3"></div>
+    <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+      <a href="/admin" class="btn">Go to Admin Settings</a>
+      <a href="/calendar" class="btn btn-outline">View All Team Calendars</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let balanceChart = null;
+  let currentUser = null;
+
+  function toIsoLocal(dt) {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, "0");
+    const d = String(dt.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  function getCurrentWeekRange() {
+    const now = new Date();
+    const day = now.getDay(); // 0=Sun, 1=Mon ... 6=Sat
+    const diffToMon = day === 0 ? -6 : 1 - day;
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMon);
+    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+    return { start: toIsoLocal(monday), end: toIsoLocal(sunday) };
+  }
+
+  function renderHolidays(tbodyId, holidays) {
+    const tbody = document.getElementById(tbodyId);
+    if (!holidays.length) {
+      tbody.innerHTML = `<tr><td colspan="2" style="color: var(--muted);">No holidays configured.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = holidays
+      .map((h) => `<tr><td>${h.date}</td><td>${h.name}</td></tr>`)
+      .join("");
+  }
+
+  // ---------- Employee Dashboard ----------
+  async function loadEmployeeDashboard() {
+    const year = document.getElementById("year-select").value;
+    hideAlert("dash-alert");
+
+    try {
+      const [balances, requests, holidays] = await Promise.all([
+        apiFetch(`/api/leaves/balances?year=${year}`),
+        apiFetch("/api/leaves/my"),
+        apiFetch("/api/leaves/holidays"),
+      ]);
+
+      renderBalanceCards(balances);
+      renderBalanceChart(balances);
+      renderMyRequests(requests);
+      renderHolidays("emp-holiday-tbody", holidays);
+    } catch (err) {
+      showAlert("dash-alert", err.message, "error");
+    }
+  }
+
+  function renderBalanceCards(balances) {
+    const container = document.getElementById("balance-cards");
+    container.innerHTML = balances
+      .map(
+        (b) => `
+        <div class="stat-card">
+          <div class="stat-title">${b.leave_type_name} (${b.year})</div>
+          <div class="stat-value">${b.remaining_days} <span style="font-size: 0.95rem; font-weight: 400; color: var(--muted);">/ ${b.yearly_allowance} days left</span></div>
+          <div class="stat-sub">Approved: ${b.approved_days} | Pending: ${b.pending_days}</div>
+        </div>`
+      )
+      .join("");
+  }
+
+  function renderBalanceChart(balances) {
+    const ctx = document.getElementById("balance-chart").getContext("2d");
+    if (balanceChart) {
+      balanceChart.destroy();
+    }
+
+    balanceChart = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: balances.map((b) => b.leave_type_name),
+        datasets: [
+          {
+            label: "Approved",
+            data: balances.map((b) => b.approved_days),
+            backgroundColor: "#16a34a",
+          },
+          {
+            label: "Pending",
+            data: balances.map((b) => b.pending_days),
+            backgroundColor: "#d97706",
+          },
+          {
+            label: "Remaining",
+            data: balances.map((b) => Math.max(0, b.remaining_days)),
+            backgroundColor: "#cbd5e1",
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { stacked: true },
+          y: { stacked: true, beginAtZero: true },
+        },
+      },
+    });
+  }
+
+  function renderMyRequests(requests) {
+    const tbody = document.getElementById("my-requests-tbody");
+    if (!requests.length) {
+      tbody.innerHTML = `<tr><td colspan="6" style="color: var(--muted);">No leave requests found.</td></tr>`;
+      return;
+    }
+
+    const todayIso = toIsoLocal(new Date());
+    tbody.innerHTML = requests
+      .map((r) => {
+        const canCancel =
+          r.status === "pending" || (r.status === "approved" && r.start_date > todayIso);
+        const actionHtml = canCancel
+          ? `<button class="btn btn-sm btn-danger" onclick="cancelRequest(${r.id})">Cancel</button>`
+          : `<span style="color: var(--muted); font-size: 0.82rem;">—</span>`;
+
+        return `
+          <tr>
+            <td>${r.leave_type_name}</td>
+            <td>${r.start_date} → ${r.end_date}</td>
+            <td>${r.days_count}</td>
+            <td>${r.reason || "—"}</td>
+            <td>${statusBadge(r.status)}</td>
+            <td>${actionHtml}</td>
+          </tr>`;
+      })
+      .join("");
+  }
+
+  async function cancelRequest(id) {
+    if (!confirm("Cancel this leave request?")) return;
+    hideAlert("dash-alert");
+    try {
+      await apiFetch(`/api/leaves/${id}/cancel`, { method: "POST" });
+      showAlert("dash-alert", "Leave request cancelled and days returned to balance.", "success");
+      await loadEmployeeDashboard();
+    } catch (err) {
+      showAlert("dash-alert", err.message, "error");
+    }
+  }
+
+  // ---------- Manager Dashboard ----------
+  async function loadManagerDashboard() {
+    hideAlert("dash-alert");
+    const { start, end } = getCurrentWeekRange();
+    document.getElementById("mgr-week-range").textContent = `${start} to ${end}`;
+
+    try {
+      const [pendingReqs, weekCal, holidays] = await Promise.all([
+        apiFetch("/api/leaves/team?status=pending"),
+        apiFetch(`/api/team/calendar?start_date=${start}&end_date=${end}`),
+        apiFetch("/api/leaves/holidays"),
+      ]);
+
+      document.getElementById("mgr-pending-count").textContent = String(pendingReqs.length);
+
+      const offBox = document.getElementById("mgr-off-this-week");
+      if (!weekCal.events.length) {
+        offBox.innerHTML = `<span style="color: var(--muted);">No team members are off this week.</span>`;
+      } else {
+        offBox.innerHTML =
+          `<ul style="margin: 0; padding-left: 1.15rem;">` +
+          weekCal.events
+            .map(
+              (ev) =>
+                `<li><strong>${ev.user_name}</strong> — ${ev.leave_type_name} (${ev.start_date} → ${ev.end_date}) ${statusBadge(ev.status)}</li>`
+            )
+            .join("") +
+          `</ul>`;
+      }
+
+      renderHolidays("mgr-holiday-tbody", holidays);
+    } catch (err) {
+      showAlert("dash-alert", err.message, "error");
+    }
+  }
+
+  // ---------- Admin Dashboard ----------
+  async function loadAdminDashboard() {
+    hideAlert("dash-alert");
+    try {
+      const [types, settings, holidays] = await Promise.all([
+        apiFetch("/api/admin/leave-types"),
+        apiFetch("/api/admin/settings"),
+        apiFetch("/api/admin/holidays"),
+      ]);
+
+      const settingsMap = Object.fromEntries(settings.map((s) => [s.key, s.value]));
+      const allowanceSummary = types.map((t) => `${t.name}: ${t.yearly_allowance}d`).join(" | ");
+
+      document.getElementById("admin-summary-grid").innerHTML = `
+        <div class="stat-card">
+          <div class="stat-title">Leave Types</div>
+          <div class="stat-value">${types.length}</div>
+          <div class="stat-sub">${allowanceSummary}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Policy Rules</div>
+          <div class="stat-value">${settingsMap["max_off_per_day"] ?? "—"} <span style="font-size: 0.9rem; font-weight: 400; color: var(--muted);">max off/day</span></div>
+          <div class="stat-sub">Min notice: ${settingsMap["min_notice_days"] ?? "—"} day(s)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title">Public Holidays</div>
+          <div class="stat-value">${holidays.length}</div>
+          <div class="stat-sub">Excluded from working-day counts</div>
+        </div>
+      `;
+    } catch (err) {
+      showAlert("dash-alert", err.message, "error");
+    }
+  }
+
+  (async function init() {
+    currentUser = await requireAuthPage();
+    if (!currentUser) return;
+
+    if (currentUser.role === "employee") {
+      document.getElementById("dash-heading").textContent = "My Dashboard";
+      document.getElementById("employee-controls").classList.remove("hidden");
+      document.getElementById("employee-section").classList.remove("hidden");
+
+      const currentYear = String(new Date().getFullYear());
+      const yearSelect = document.getElementById("year-select");
+      if (![...yearSelect.options].some((o) => o.value === currentYear)) {
+        yearSelect.add(new Option(currentYear, currentYear));
+      }
+      yearSelect.value = currentYear;
+      yearSelect.addEventListener("change", loadEmployeeDashboard);
+
+      await loadEmployeeDashboard();
+    } else if (currentUser.role === "manager") {
+      document.getElementById("dash-heading").textContent = "Manager Dashboard";
+      document.getElementById("manager-section").classList.remove("hidden");
+      await loadManagerDashboard();
+    } else if (currentUser.role === "admin") {
+      document.getElementById("dash-heading").textContent = "Admin Dashboard";
+      document.getElementById("admin-section").classList.remove("hidden");
+      await loadAdminDashboard();
+    }
+  })();
+</script>
+{% endblock %}

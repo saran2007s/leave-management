@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Leave Management{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  {% block head_extra %}{% endblock %}
+</head>
+<body>
+  <nav class="navbar" id="main-navbar">
+    <a class="nav-brand" href="/dashboard">Leave Management</a>
+    <div class="nav-links">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/request" id="nav-request" class="hidden">New Request</a>
+      <a href="/approvals" id="nav-approvals" class="hidden">Approvals</a>
+      <a href="/calendar">Team Calendar</a>
+      <a href="/admin" id="nav-admin" class="hidden">Admin Config</a>
+    </div>
+    <div class="nav-user">
+      <span id="nav-user-label">Loading...</span>
+      <button class="btn btn-sm btn-secondary" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="/static/js/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

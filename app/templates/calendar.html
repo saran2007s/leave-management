@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Team Calendar - Leave Management{% endblock %}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div id="cal-alert" class="alert hidden"></div>
+
+<div class="card">
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem;">
+    <div>
+      <h2 style="margin: 0;">Team Availability Summary</h2>
+      <span id="summary-source" style="font-size: 0.82rem; color: var(--muted);"></span>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+      <select id="admin-mgr-filter" class="hidden" style="padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid var(--border);">
+        <option value="">All Teams</option>
+      </select>
+      <button class="btn btn-sm btn-outline" onclick="jumpToMonth('2026-12-01')">Jump to Dec 2026</button>
+      <button class="btn btn-sm" onclick="loadSummary()">Refresh Summary</button>
+    </div>
+  </div>
+  <div id="summary-text" style="font-size: 0.95rem; background: #f8fafc; padding: 0.85rem; border-radius: 8px; border: 1px solid var(--border);">
+    Loading summary...
+  </div>
+</div>
+
+<div class="card">
+  <div class="legend">
+    <span><span class="legend-dot" style="background: #16a34a;"></span>Approved Leave</span>
+    <span><span class="legend-dot" style="background: #d97706;"></span>Pending Leave</span>
+    <span><span class="legend-dot" style="background: #7c3aed;"></span>Public Holiday</span>
+    <span id="cap-label" style="margin-left: auto; color: var(--muted);"></span>
+  </div>
+  <div id="calendar"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let calendar = null;
+  let currentUser = null;
+
+  // FullCalendar treats all-day `end` as EXCLUSIVE, so add 1 day to include end_date
+  function addOneDay(isoDate) {
+    const [y, m, d] = isoDate.split("-").map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d + 1));
+    return dt.toISOString().slice(0, 10);
+  }
+
+  function getSelectedManagerId() {
+    const sel = document.getElementById("admin-mgr-filter");
+    return sel && !sel.classList.contains("hidden") && sel.value ? sel.value : "";
+  }
+
+  function getVisibleRange() {
+    const view = calendar.view;
+    const start = view.activeStart.toISOString().slice(0, 10);
+    // activeEnd in FullCalendar is exclusive; subtract 1 day for inclusive end
+    const endDt = new Date(view.activeEnd.getTime() - 86400000);
+    const end = endDt.toISOString().slice(0, 10);
+    return { start, end };
+  }
+
+  async function loadCalendarEvents() {
+    const mgrId = getSelectedManagerId();
+    const url = mgrId ? `/api/team/calendar?manager_id=${mgrId}` : "/api/team/calendar";
+
+    try {
+      const data = await apiFetch(url);
+      document.getElementById("cap-label").textContent = `Team Cap: max ${data.max_off_per_day} off/day`;
+
+      const leaveEvents = data.events.map((ev) => ({
+        title: `${ev.user_name} (${ev.leave_type_name} - ${ev.status})`,
+        start: ev.start_date,
+        end: addOneDay(ev.end_date),
+        allDay: true,
+        backgroundColor: ev.status === "approved" ? "#16a34a" : "#d97706",
+        borderColor: ev.status === "approved" ? "#15803d" : "#b45309",
+      }));
+
+      const holidayEvents = data.holidays.map((h) => ({
+        title: `Holiday: ${h.name}`,
+        start: h.date,
+        end: addOneDay(h.date),
+        allDay: true,
+        backgroundColor: "#7c3aed",
+        borderColor: "#6d28d9",
+      }));
+
+      calendar.removeAllEvents();
+      calendar.addEventSource([...leaveEvents, ...holidayEvents]);
+    } catch (err) {
+      showAlert("cal-alert", err.message, "error");
+    }
+  }
+
+  async function loadSummary() {
+    const { start, end } = getVisibleRange();
+    const mgrId = getSelectedManagerId();
+    const params = new URLSearchParams({ start_date: start, end_date: end });
+    if (mgrId) params.set("manager_id", mgrId);
+
+    document.getElementById("summary-text").textContent = "Generating summary...";
+    try {
+      const data = await apiFetch(`/api/team/summary?${params.toString()}`);
+      document.getElementById("summary-text").textContent = data.summary;
+      document.getElementById("summary-source").textContent =
+        data.source === "gemini" ? "Powered by Gemini AI" : "Generated via template summary";
+    } catch (err) {
+      document.getElementById("summary-text").textContent = "Unable to generate summary.";
+    }
+  }
+
+  function jumpToMonth(isoDate) {
+    calendar.gotoDate(isoDate);
+    loadSummary();
+  }
+
+  (async function init() {
+    currentUser = await requireAuthPage();
+    if (!currentUser) return;
+
+    if (currentUser.role === "admin") {
+      const filter = document.getElementById("admin-mgr-filter");
+      filter.classList.remove("hidden");
+      const managers = await apiFetch("/api/team/managers");
+      managers.forEach((m) => {
+        filter.add(new Option(`${m.name}'s Team`, m.id));
+      });
+      filter.addEventListener("change", async () => {
+        await loadCalendarEvents();
+        await loadSummary();
+      });
+    }
+
+    const calEl = document.getElementById("calendar");
+    calendar = new FullCalendar.Calendar(calEl, {
+      initialView: "dayGridMonth",
+      height: "auto",
+      datesSet: () => {
+        loadSummary();
+      },
+    });
+    calendar.render();
+
+    await loadCalendarEvents();
+    await loadSummary();
+  })();
+</script>
+{% endblock %}

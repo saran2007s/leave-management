@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}New Leave Request - Leave Management{% endblock %}
+
+{% block content %}
+<div id="request-card" class="card hidden" style="max-width: 600px; margin: 0 auto;">
+  <h2>Request Leave</h2>
+  <p style="color: var(--muted); font-size: 0.9rem;">
+    Weekends and public holidays are automatically excluded from your working-day count.
+  </p>
+
+  <div id="req-alert" class="alert hidden"></div>
+
+  <form id="leave-form">
+    <div class="form-group">
+      <label for="leave-type">Leave Type</label>
+      <select id="leave-type" required></select>
+    </div>
+
+    <div class="grid-2">
+      <div class="form-group">
+        <label for="start-date">Start Date</label>
+        <input type="date" id="start-date" required />
+      </div>
+      <div class="form-group">
+        <label for="end-date">End Date</label>
+        <input type="date" id="end-date" required />
+      </div>
+    </div>
+
+    <div id="preview-box" class="alert alert-info hidden"></div>
+
+    <div class="form-group">
+      <label for="reason">Reason</label>
+      <textarea id="reason" rows="3" placeholder="Optional reason for your manager..."></textarea>
+    </div>
+
+    <div style="display: flex; gap: 0.75rem;">
+      <button type="submit" class="btn">Submit Request</button>
+      <a href="/dashboard" class="btn btn-outline">Back to Dashboard</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function updatePreview() {
+    const start = document.getElementById("start-date").value;
+    const end = document.getElementById("end-date").value;
+    const previewBox = document.getElementById("preview-box");
+
+    if (!start || !end) {
+      previewBox.classList.add("hidden");
+      return;
+    }
+    if (end < start) {
+      previewBox.textContent = "End date cannot be before start date.";
+      previewBox.className = "alert alert-error";
+      return;
+    }
+
+    try {
+      const data = await apiFetch(`/api/leaves/preview-days?start_date=${start}&end_date=${end}`);
+      previewBox.textContent = `Working days counted: ${data.working_days} day(s)`;
+      previewBox.className = "alert alert-info";
+    } catch (err) {
+      previewBox.classList.add("hidden");
+    }
+  }
+
+  document.getElementById("start-date").addEventListener("change", updatePreview);
+  document.getElementById("end-date").addEventListener("change", updatePreview);
+
+  document.getElementById("leave-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideAlert("req-alert");
+
+    const payload = {
+      leave_type_id: Number(document.getElementById("leave-type").value),
+      start_date: document.getElementById("start-date").value,
+      end_date: document.getElementById("end-date").value,
+      reason: document.getElementById("reason").value,
+    };
+
+    try {
+      const created = await apiFetch("/api/leaves", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      showAlert(
+        "req-alert",
+        `Request #${created.id} submitted (${created.days_count} working day(s), status: pending).`,
+        "success"
+      );
+      document.getElementById("leave-form").reset();
+      document.getElementById("preview-box").classList.add("hidden");
+    } catch (err) {
+      showAlert("req-alert", err.message, "error");
+    }
+  });
+
+  (async function init() {
+    const user = await requireAuthPage();
+    if (!user) return;
+
+    // Only employees may access /request; redirect managers and admins to /dashboard
+    if (user.role !== "employee") {
+      window.location.replace("/dashboard");
+      return;
+    }
+
+    document.getElementById("request-card").classList.remove("hidden");
+
+    const types = await apiFetch("/api/leaves/types");
+    const select = document.getElementById("leave-type");
+    select.innerHTML = types
+      .map((t) => `<option value="${t.id}">${t.name} (Allowance: ${t.yearly_allowance} days/yr)</option>`)
+      .join("");
+  })();
+</script>
+{% endblock %}

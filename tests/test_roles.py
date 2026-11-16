@@ -7,6 +7,28 @@ def test_unauthenticated_access_returns_401(client):
     assert client.get("/api/admin/settings").status_code == 401
 
 
+def test_manager_and_admin_cannot_create_leave_request(client, seeded_db):
+    mgr1 = seeded_db["mgr1"]
+    admin = seeded_db["admin"]
+    annual = seeded_db["annual"]
+    mon, fri = next_full_workweek()
+
+    payload = {
+        "leave_type_id": annual.id,
+        "start_date": mon.isoformat(),
+        "end_date": fri.isoformat(),
+        "reason": "Should be forbidden",
+    }
+
+    resp_mgr = client.post("/api/leaves", headers=auth_headers(mgr1), json=payload)
+    assert resp_mgr.status_code == 403
+    assert "only employees" in resp_mgr.json()["detail"].lower()
+
+    resp_admin = client.post("/api/leaves", headers=auth_headers(admin), json=payload)
+    assert resp_admin.status_code == 403
+    assert "only employees" in resp_admin.json()["detail"].lower()
+
+
 def test_employee_and_admin_cannot_approve_or_reject(client, seeded_db):
     admin = seeded_db["admin"]
     emp1 = seeded_db["emp1"]
